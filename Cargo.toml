@@ -1,0 +1,15 @@
+[package]
+name = "ncscreenier"
+version = "0.1.0"
+authors = ["Nebual <ben1120@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+scrap = "0.5"
+repng = "0.2"
+chrono = "0.4"
+piston_window = "0.89"
+image = "0.21"
+
+[profile.dev]
+opt-level=2
