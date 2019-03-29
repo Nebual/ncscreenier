@@ -1,29 +1,102 @@
 extern crate chrono;
+extern crate clipboard;
+extern crate ctrlc;
+extern crate docopt;
 extern crate image;
+extern crate livesplit_hotkey;
 extern crate piston_window;
 extern crate repng;
+extern crate reqwest;
 extern crate scrap;
 
+use clipboard::ClipboardContext;
+use clipboard::ClipboardProvider;
 use core::borrow::BorrowMut;
+use livesplit_hotkey::KeyCode;
 use piston_window::*;
 use scrap::{Capturer, Display};
 use std::cmp::{max, min};
 use std::fs::File;
 use std::io::ErrorKind::WouldBlock;
-use std::process::exit;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 const DEBUGGING: bool = true;
 
 fn main() {
+    let cli_args = docopt::Docopt::new(
+        "
+NCScreenie - Screenshot Cropper & Uploader
+
+Usage:
+    ncscreenier [--watch] [--directory=<DIR>] [--account=<name>]
+    ncscreenier [--no-watch] [--directory=<DIR>] [--account=<name>]
+    ncscreenier [--help]
+
+Options:
+    -h --help         Show this screen.
+    --account=<name>  Account to upload under [default: anon]
+    --watch           Watch for printscreens (default)
+    --no-watch        Disable watching for printscreen, just immediately capture once
+    --directory=DIR   Output directory for screenshots [default: ./]
+    ",
+    )
+    .and_then(|dopt| dopt.parse())
+    .unwrap_or_else(|e| e.exit());
+
+    let directory = cli_args.get_str("--directory").to_string();
+    let account = cli_args.get_str("--account").to_string();
+
+    let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
+    let mut runtime = move || {
+        if let Some(filename) = screenshot_and_save(&directory) {
+            if let Some(url) = upload_to_nebtown(
+                filename.as_str(),
+                format!("{}{}", directory, filename).as_str(),
+                account.as_str(),
+            ) {
+                ctx.set_contents(url).unwrap();
+            }
+        }
+    };
+
+    let printscreen_hook;
+    if !cli_args.get_bool("--no-watch") {
+        printscreen_hook = livesplit_hotkey::Hook::new().unwrap();
+        printscreen_hook.register(KeyCode::Print, runtime).unwrap();
+
+        println!("ncscreenier listening for printscreen's...");
+
+        sleep_until_exit();
+        println!("Exiting...");
+    } else {
+        runtime();
+    }
+}
+
+fn sleep_until_exit() {
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+    while running.load(Ordering::SeqCst) {
+        thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+fn screenshot_and_save(directory: &str) -> Option<String> {
     let mut screenshot = capture_screenshot();
 
     if let Some(rect) = present_for_cropping(&screenshot) {
         let filename = format!("{}.png", chrono::Local::now().format("%Y_%m_%d_%H-%M-%S"));
+        let filepath = format!("{}{}", directory, filename);
         print!(
             "Saving crop {},{} -> {}, {} to {}...",
-            rect.top_left.0, rect.top_left.1, rect.bottom_right.0, rect.bottom_right.1, filename
+            rect.top_left.0, rect.top_left.1, rect.bottom_right.0, rect.bottom_right.1, filepath
         );
         let cropped_width = rect.bottom_right.0 - rect.top_left.0;
         let cropped_height = rect.bottom_right.1 - rect.top_left.1;
@@ -36,16 +109,41 @@ fn main() {
         )
         .to_image();
         repng::encode(
-            File::create(&filename).unwrap(),
+            File::create(&filepath).unwrap(),
             cropped_width,
             cropped_height,
             &cropped_image.into_raw(),
         )
         .unwrap();
         println!(" saved.");
+        Some(filename)
     } else {
-        println!("Exiting due to right click, toodles");
-        exit(0);
+        println!("Closing screenshot due to right click");
+        None
+    }
+}
+
+fn upload_to_nebtown(filename: &str, filepath: &str, directory: &str) -> Option<String> {
+    let url = format!("http://nebtown.info/ss/{}/{}", directory, filename);
+    print!("Uploading to {} ...", url);
+    let form = reqwest::multipart::Form::new()
+        .file("file", &filepath)
+        .unwrap();
+    let mut res: reqwest::Response = reqwest::Client::new()
+        .post(&format!(
+            "http://nebtown.info/ss/?folder_name={}&file_name={}",
+            directory, filename
+        ))
+        .multipart(form)
+        .send()
+        .unwrap();
+    if res.status() == 200 {
+        println!(" done!");
+        Some(url)
+    } else {
+        println!(" error! {:?}, {:?}", res.status(), res.headers());
+        println!("{:?}", res.text().unwrap_or("??".to_string()));
+        None
     }
 }
 
