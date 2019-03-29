@@ -65,7 +65,7 @@ Options:
     let printscreen_hook;
     if !cli_args.get_bool("--no-watch") {
         printscreen_hook = livesplit_hotkey::Hook::new().unwrap();
-        printscreen_hook.register(KeyCode::Print, runtime).unwrap();
+        printscreen_hook.register(KeyCode::Snapshot, runtime).unwrap();
 
         println!("ncscreenier listening for printscreen's...");
 
@@ -169,6 +169,7 @@ fn present_for_cropping(screenshot: &image::RgbaImage) -> Option<Rect> {
         .build()
         .unwrap();
     window.set_lazy(true);
+    window.window.window.set_always_on_top(true);
 
     let mut canvas = image::ImageBuffer::new(draw_width, draw_height);
     let mut canvas_texture: G2dTexture =
