@@ -6,5 +6,6 @@
 
 ## Building
 ```
+sudo apt-get install xorg-dev libx11-xcb-dev
 cargo run --release
 ```

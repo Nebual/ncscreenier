@@ -1,0 +1,8 @@
+FROM ekidd/rust-musl-builder
+
+RUN sudo apt-get update && sudo apt-get install -y \
+	libxcb1-dev libxcb-shm0-dev libxcb-randr0-dev libxcb-randr0 libxrandr2 libxrandr-dev x11proto-randr-dev
+
+# docker build . --tag musl-build --file=Dockerfile.rust-musl-builder
+# alias rust-musl-builder='docker run --rm -it -v "$(pwd)":/home/rust/src -v cargo-git:/home/rust/.cargo/git -v cargo-registry:/home/rust/.cargo/registry musl-build'
+# rust-musl-builder cargo clean --target-dir=target-musl/ && cargo build --release --target-dir=target-musl/
