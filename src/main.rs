@@ -29,6 +29,11 @@ const DEBUGGING: bool = true;
 #[cfg(not(debug_assertions))]
 const DEBUGGING: bool = false;
 
+#[cfg(windows)]
+const PRINTSCREEN_KEYCODE: KeyCode = KeyCode::Snapshot;
+#[cfg(not(windows))]
+const PRINTSCREEN_KEYCODE: KeyCode = KeyCode::Print;
+
 fn main() {
     let cli_args = docopt::Docopt::new(
         "
@@ -69,7 +74,9 @@ Options:
     let printscreen_hook;
     if !cli_args.get_bool("--no-watch") {
         printscreen_hook = livesplit_hotkey::Hook::new().unwrap();
-        printscreen_hook.register(KeyCode::Snapshot, runtime).unwrap();
+        printscreen_hook
+            .register(PRINTSCREEN_KEYCODE, runtime)
+            .unwrap();
 
         println!("ncscreenier listening for printscreen's...");
 
