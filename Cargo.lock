@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "ncscreenier"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "clipboard 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1648,7 +1648,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "scrap"
 version = "0.5.0"
-source = "git+https://github.com/Nebual/scrap?branch=add-display-coordinates#c959d526360c1a84ab0c8aa230e5308c358badf2"
+source = "git+https://github.com/Nebual/scrap?branch=add-display-coordinates#4dde907aeb8e0948d32ec3186a8ae765ab395a97"
 dependencies = [
  "block 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",

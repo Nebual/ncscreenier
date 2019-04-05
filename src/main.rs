@@ -24,6 +24,8 @@ use std::thread;
 use std::time::Duration;
 
 const SELECTION_COLOUR: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 #[cfg(debug_assertions)]
 const DEBUGGING: bool = true;
 #[cfg(not(debug_assertions))]
@@ -36,8 +38,8 @@ const PRINTSCREEN_KEYCODE: KeyCode = KeyCode::Print;
 
 fn main() {
     let cli_args = docopt::Docopt::new(
-        "
-NCScreenie - Screenshot Cropper & Uploader
+        format!("
+NCScreenie {} - Screenshot Cropper & Uploader
 
 Usage:
     ncscreenier [--watch] [--directory=<DIR>] [--account=<name>]
@@ -50,7 +52,7 @@ Options:
     --watch           Watch for printscreens (default)
     --no-watch        Disable watching for printscreen, just immediately capture once
     --directory=DIR   Output directory for screenshots [default: ./]
-    ",
+    ", VERSION),
     )
     .and_then(|dopt| dopt.parse())
     .unwrap_or_else(|e| e.exit());
