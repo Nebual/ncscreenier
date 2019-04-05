@@ -1,0 +1,64 @@
+# Based on the "trust" template v0.1.2
+# https://github.com/japaric/trust/tree/v0.1.2
+
+dist: trusty
+language: rust
+services: docker
+sudo: required
+
+env:
+  global:
+    - CRATE_NAME=ncscreenier
+
+matrix:
+  include:
+    # Linux
+    #- env: TARGET=arm-unknown-linux-gnueabi
+    - env: TARGET=x86_64-unknown-linux-gnu
+    - env: TARGET=x86_64-unknown-linux-musl
+
+    # OSX
+    - env: TARGET=x86_64-apple-darwin
+      os: osx
+
+    # Windows
+    - env: TARGET=x86_64-pc-windows-gnu
+
+before_install:
+  - set -e
+  - rustup self update
+
+install:
+  - sh ci/install.sh
+  - source ~/.cargo/env || true
+
+after_script: set +e
+
+before_deploy:
+  - sh ci/before_deploy.sh
+
+deploy:
+  api_key:
+    secure: "udlVXXpXMRkL58OER6lhM6DEaiuEjM9Z+THfhTOtDaEr6KbDA7GQ3g/6TtBxJSVVzk3LhYuEVzfMRw7ylWgsfmiIQaJFzOA/0sIMOO1h0G1Y4YmCbOzopD40xP/wE0AYKOx09eVSTmFW5RpmC1d0YUE4hk2ZQuRY4egyjE4/XtSjsZM+pXnSMj3NEeaDBZ2bdUgCmnJ5DWBFmRMhP3a43+1tFvSCaI4oMAUtYhZet9dNHsqVDmw1MRPHqrxn4Y8twfFfReO5uyZsdXr6E7DHSKX9EmUID2t3E8nc8YJIzEDPMzCePQrhGHabk9TuiPjpcOmkLEyCKPM37q2LbJVKtS/D6pbOMSLqgop+Vt83L9B/SutaM/8gzINIsPMA+WES/K5UfoWF0dgvVDP5wR04XzCFATEZb96Lt0+0h4ft10J9Hr35RdIRxXMftNNo5P12S+8luk7sEwRmt2eLO+l+QnaX5tEgqYo1UVxJrORugA8px11Evfk1dC+mytj1NoZcD861HwBW9qSi3AbUiQUGFRJbGqTGt05XL9U0nvUd8iahvRR8cQLtLRok+ik/Ul2/zi3/MLAYaKMiej3yzRP151OYEigla3QIcQDoeX52BEEN2pCU21v6VgO2Z7krslGlq/tzmTo8E33ApxOOk2MuI9ha8mdGLEfXCkiYr5sK8B8="
+  file_glob: true
+  file: $CRATE_NAME-$TRAVIS_TAG-$TARGET.*
+  on:
+    condition: $TRAVIS_RUST_VERSION = stable
+    tags: true
+  provider: releases
+  skip_cleanup: true
+
+cache: cargo
+before_cache:
+  # Travis can't cache files that are not readable by "others"
+  - chmod -R a+r $HOME/.cargo
+
+branches:
+  only:
+    # release tags
+    - /^v\d+\.\d+\.\d+.*$/
+    - master
+
+notifications:
+  email:
+    on_success: never
