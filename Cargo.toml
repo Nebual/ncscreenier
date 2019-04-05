@@ -16,6 +16,9 @@ reqwest = "0.9"
 clipboard = "0.5"
 image = "0.21"
 
+[patch.crates-io]
+scrap = { git = 'https://github.com/Nebual/scrap', branch = 'add-display-coordinates' }
+
 [profile.dev]
 opt-level=2
 
