@@ -1,0 +1,43 @@
+{
+  "app-id": "org.flatpak.ncscreenier",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "18.08",
+  "sdk": "org.freedesktop.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "command": "ncscreenier",
+  "modules": [
+    {
+      "name": "ncscreenier",
+      "buildsystem": "simple",
+      "build-commands": [
+        "ls -l /usr/lib/sdk/rust-stable",
+        "ls -l /run/build/ncscreenier",
+        "cargo build",
+        "install -D target/debug/ncscreenier /app/bin/ncscreenier"
+      ],
+      "build-options": {
+        "append-path" : "/usr/lib/sdk/rust-stable/bin",
+        "build-args": ["--share=network"],
+        "env" : {
+          "CARGO_HOME" : "/run/build/ncscreenier/cargo",
+          "DEBUG" : "true"
+        }
+      },
+      "sources": [
+        {
+          "type": "dir",
+          "path": "src",
+          "dest": "src"
+        },
+        {
+          "type": "file",
+          "path": "Cargo.lock"
+        },
+        {
+          "type": "file",
+          "path": "Cargo.toml"
+        }
+      ]
+    }
+  ]
+}
