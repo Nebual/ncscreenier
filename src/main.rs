@@ -9,6 +9,13 @@ extern crate repng;
 extern crate reqwest;
 extern crate scrap;
 
+#[cfg(windows)]
+extern crate kernel32;
+#[cfg(windows)]
+extern crate user32;
+#[cfg(windows)]
+extern crate winapi;
+
 use clipboard::ClipboardContext;
 use clipboard::ClipboardProvider;
 use core::borrow::BorrowMut;
@@ -42,7 +49,7 @@ fn main() {
 NCScreenie {} - Screenshot Cropper & Uploader
 
 Usage:
-    ncscreenier [--watch] [--directory=<DIR>] [--account=<name>]
+    ncscreenier [--watch] [--directory=<DIR>] [--account=<name>] [--quiet]
     ncscreenier [--no-watch] [--directory=<DIR>] [--account=<name>]
     ncscreenier [--help]
 
@@ -52,6 +59,7 @@ Options:
     --watch           Watch for printscreens (default)
     --no-watch        Disable watching for printscreen, just immediately capture once
     --directory=DIR   Output directory for screenshots [default: ./]
+    --quiet           (Windows only) hide the cmd window
     ", VERSION),
     )
     .and_then(|dopt| dopt.parse())
@@ -81,6 +89,19 @@ Options:
             .unwrap();
 
         println!("ncscreenier listening for printscreen's...");
+
+        if cli_args.get_bool("--quiet") {
+            #[cfg(windows)]
+            {
+                let window = unsafe { kernel32::GetConsoleWindow() };
+                // https://msdn.microsoft.com/en-us/library/windows/desktop/ms633548%28v=vs.85%29.aspx
+                if window != std::ptr::null_mut() {
+                    unsafe {
+                        user32::ShowWindow(window, winapi::um::winuser::SW_HIDE);
+                    }
+                }
+            }
+        }
 
         sleep_until_exit();
         println!("Exiting...");

@@ -16,6 +16,12 @@ reqwest = "0.9"
 clipboard = "0.5"
 image = "0.21"
 
+[target.'cfg(windows)'.dependencies]
+winapi = "*"
+user32-sys = "*"
+kernel32-sys = "*"
+
+
 [patch.crates-io]
 scrap = { git = 'https://github.com/Nebual/scrap', branch = 'add-display-coordinates' }
 
