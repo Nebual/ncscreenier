@@ -1,6 +1,8 @@
+extern crate apng_encoder;
 extern crate chrono;
 extern crate clipboard;
 extern crate ctrlc;
+extern crate device_query;
 extern crate docopt;
 extern crate image;
 extern crate livesplit_hotkey;
@@ -8,6 +10,8 @@ extern crate piston_window;
 extern crate repng;
 extern crate reqwest;
 extern crate scrap;
+#[macro_use]
+extern crate lazy_static;
 
 #[cfg(windows)]
 extern crate kernel32;
@@ -16,27 +20,42 @@ extern crate user32;
 #[cfg(windows)]
 extern crate winapi;
 
+use apng_encoder::{Color, Delay, Encoder, Frame, Meta};
 use clipboard::ClipboardContext;
 use clipboard::ClipboardProvider;
 use core::borrow::BorrowMut;
-use image::GenericImage;
+use device_query::{DeviceQuery, DeviceState, Keycode};
+use image::{GenericImage, GenericImageView, RgbaImage};
 use livesplit_hotkey::KeyCode;
 use piston_window::*;
 use scrap::{Capturer, Display};
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::ErrorKind::WouldBlock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SELECTION_COLOUR: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+lazy_static! {
+    static ref ONE_FRAME: Duration = Duration::new(1, 0) / 60;
+    static ref DURATION_1MS: Duration = Duration::new(0, 1);
+}
 
 #[cfg(debug_assertions)]
 const DEBUGGING: bool = true;
 #[cfg(not(debug_assertions))]
 const DEBUGGING: bool = false;
+
+macro_rules! d {
+    ($($arg:tt)*) => {
+      if DEBUGGING {
+        ($($arg)*);
+      }
+    };
+}
 
 #[cfg(windows)]
 const PRINTSCREEN_KEYCODE: KeyCode = KeyCode::Snapshot;
@@ -134,21 +153,65 @@ fn screenshot_and_save(directory: &str) -> Option<String> {
         );
         let cropped_width = rect.bottom_right.0 - rect.top_left.0;
         let cropped_height = rect.bottom_right.1 - rect.top_left.1;
-        let cropped_image = image::imageops::crop(
-            screenshot.image.borrow_mut(),
-            rect.top_left.0,
-            rect.top_left.1,
-            cropped_width,
-            cropped_height,
-        )
-        .to_image();
-        repng::encode(
-            File::create(&filepath).unwrap(),
-            cropped_width,
-            cropped_height,
-            &cropped_image.into_raw(),
-        )
-        .unwrap();
+        if screenshot.additional_images.len() == 0 {
+            let cropped_image = image::imageops::crop(
+                screenshot.image.borrow_mut(),
+                rect.top_left.0,
+                rect.top_left.1,
+                cropped_width,
+                cropped_height,
+            )
+            .to_image();
+            repng::encode(
+                File::create(&filepath).unwrap(),
+                cropped_width,
+                cropped_height,
+                &cropped_image.into_raw(),
+            )
+            .unwrap();
+        } else {
+            let mut file = File::create(&filepath).unwrap();
+            let mut encoder = Encoder::create(
+                &mut file,
+                Meta {
+                    color: Color::RGBA(8),
+                    frames: 1 + (screenshot.additional_images.len() as u32),
+                    width: cropped_width,
+                    height: cropped_height,
+                    plays: None,
+                },
+            )
+            .expect("failed to create apng encoder");
+
+            let mut delays = screenshot.delays.into_iter();
+            std::iter::once(screenshot.image)
+                .chain(screenshot.additional_images.into_iter())
+                .for_each(|mut frame_image| {
+                    let cropped_frame = image::imageops::crop(
+                        frame_image.borrow_mut(),
+                        rect.top_left.0,
+                        rect.top_left.1,
+                        cropped_width,
+                        cropped_height,
+                    )
+                    .to_image();
+                    encoder
+                        .write_frame(
+                            &cropped_frame.into_vec(),
+                            Some(&Frame {
+                                delay: Some(Delay {
+                                    numerator: delays.next().unwrap(),
+                                    denominator: 1000,
+                                }),
+                                ..Default::default()
+                            }),
+                            None,
+                            None,
+                        )
+                        .unwrap();
+                });
+            encoder.finish().unwrap();
+        }
         println!(" saved.");
         Some(filename)
     } else {
@@ -244,9 +307,7 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
             if start_pos == (0.0, 0.0) {
                 e.mouse_cursor(|x, y| {
                     start_pos = (x, y);
-                    if DEBUGGING {
-                        println!("start position {}, {}", x, y);
-                    }
+                    d!(println!("start position {}, {}", x, y));
                 });
             }
             if let Some(ending) = e.release(|button| {
@@ -285,20 +346,22 @@ struct CapturerPosition {
 }
 
 struct SubImage {
-    image: image::RgbaImage,
+    image: Option<image::RgbaImage>,
     top: i32,
     left: i32,
+    w: u32,
+    h: u32,
 }
 
 struct PresentabeScreenshot {
     image: image::RgbaImage,
+    additional_images: Vec<RgbaImage>,
+    delays: Vec<u16>,
     x: i32,
     y: i32,
 }
 
 fn capture_screenshot() -> PresentabeScreenshot {
-    let one_frame = Duration::new(1, 0) / 60;
-
     let displays: Vec<Display> = Display::all().expect("Couldn't get displays.");
     let max_x = {
         let display = displays
@@ -328,45 +391,115 @@ fn capture_screenshot() -> PresentabeScreenshot {
             .unwrap();
         display.top()
     };
-    if DEBUGGING {
-        println!(
-            "Capturing screenshot with dimensions: {},{} {},{}",
-            min_x, min_y, max_x, max_y
+    d!(println!(
+        "Capturing screenshot with dimensions: {},{} {},{}",
+        min_x, min_y, max_x, max_y
+    ));
+
+    let capturers: Vec<RefCell<CapturerPosition>> = displays
+        .into_iter()
+        .map(|display| {
+            RefCell::new(CapturerPosition {
+                left: display.left(),
+                top: display.top(),
+                capturer: Capturer::new(display).expect("Couldn't begin capture"),
+            })
+        })
+        .collect();
+    let mut prev_frame_time = SystemTime::now();
+    let big_image = capture_image(&capturers, min_x, min_y, max_x, max_y, None);
+
+    let mut additional_images: Vec<RgbaImage> = Vec::new();
+    let mut delays: Vec<u16> = vec![SystemTime::now()
+        .duration_since(prev_frame_time)
+        .unwrap()
+        .as_millis() as u16];
+    prev_frame_time = SystemTime::now();
+
+    let device_state = DeviceState::new();
+    while device_state
+        .get_keys()
+        .into_iter()
+        .any(|key| key == Keycode::LShift || key == Keycode::RShift)
+    {
+        // std::thread::sleep_ms(50);
+        d!(print_time("Before additional image"));
+        additional_images.push(capture_image(
+            &capturers,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            Some(additional_images.last().unwrap_or(&big_image)),
+        ));
+        delays.push(
+            SystemTime::now()
+                .duration_since(prev_frame_time)
+                .unwrap()
+                .as_millis() as u16,
         );
+        prev_frame_time = SystemTime::now();
     }
 
-    let mut big_image = image::RgbaImage::new((max_x - min_x) as u32, (max_y - min_y) as u32);
+    return PresentabeScreenshot {
+        image: big_image,
+        additional_images,
+        delays,
+        x: min_x,
+        y: min_y,
+    };
+}
 
-    displays
-        .into_iter()
-        .map(|display| CapturerPosition {
-            left: display.left(),
-            top: display.top(),
-            capturer: Capturer::new(display).expect("Couldn't begin capture"),
-        })
-        .map(|capturer_position| {
-            let mut capturer = capturer_position.capturer;
-            let w = capturer.width();
-            let h = capturer.height();
+fn capture_image(
+    capturers: &Vec<RefCell<CapturerPosition>>,
+    min_x: i32,
+    min_y: i32,
+    max_x: i32,
+    max_y: i32,
+    base_image: Option<&RgbaImage>,
+) -> RgbaImage {
+    let mut big_image = image::RgbaImage::new((max_x - min_x) as u32, (max_y - min_y) as u32);
+    d!(print_time("initialized image"));
+
+    capturers
+        .iter()
+        .map(|capturer_position_cell| {
+            let mut capturer_position = capturer_position_cell.borrow_mut();
+            let w = capturer_position.capturer.width();
+            let h = capturer_position.capturer.height();
+            let mut frames_asleep = 0;
             loop {
-                // Wait until there's a frame.
-                match capturer.frame() {
+                match capturer_position.capturer.frame() {
                     Ok(captured_buffer) => {
                         if !captured_buffer.to_vec().iter().any(|&x| x != 0) {
                             // sometimes it captures all black?? skip
-                            thread::sleep(one_frame);
+                            d!(println!("black frame"));
+                            thread::sleep(*DURATION_1MS);
                             continue;
                         }
                         return SubImage {
-                            image: scrap_buffer_to_rgbaimage(w, h, captured_buffer),
+                            image: Some(scrap_buffer_to_rgbaimage(w, h, captured_buffer)),
                             top: capturer_position.top,
                             left: capturer_position.left,
+                            w: w as u32,
+                            h: h as u32,
                         };
                     }
                     Err(error) => {
                         if error.kind() == WouldBlock {
-                            // Keep spinning.
-                            thread::sleep(one_frame);
+                            if frames_asleep > 20 && base_image.is_some() {
+                                return SubImage {
+                                    image: None,
+                                    top: capturer_position.top,
+                                    left: capturer_position.left,
+                                    w: w as u32,
+                                    h: h as u32,
+                                };
+                            }
+                            // Wait until there's a frame.
+                            d!(println!("would block {:?}", frames_asleep));
+                            frames_asleep += 1;
+                            //thread::sleep(*DURATION_1MS);
                             continue;
                         } else {
                             panic!("Error: {}", error);
@@ -376,17 +509,26 @@ fn capture_screenshot() -> PresentabeScreenshot {
             }
         })
         .for_each(|subimage| {
-            big_image.copy_from(
-                &subimage.image,
-                (subimage.left - min_x) as u32,
-                (subimage.top - min_y) as u32,
-            );
+            if subimage.image.is_none() {
+                big_image.copy_from(
+                    &(base_image.unwrap().view(
+                        (subimage.left - min_x) as u32,
+                        (subimage.top - min_y) as u32,
+                        subimage.w,
+                        subimage.h,
+                    )),
+                    (subimage.left - min_x) as u32,
+                    (subimage.top - min_y) as u32,
+                );
+            } else {
+                big_image.copy_from(
+                    &subimage.image.unwrap(),
+                    (subimage.left - min_x) as u32,
+                    (subimage.top - min_y) as u32,
+                );
+            }
         });
-    return PresentabeScreenshot {
-        image: big_image,
-        x: min_x,
-        y: min_y,
-    };
+    big_image
 }
 
 fn scrap_buffer_to_rgbaimage(w: usize, h: usize, buffer: scrap::Frame) -> image::RgbaImage {
@@ -400,4 +542,8 @@ fn scrap_buffer_to_rgbaimage(w: usize, h: usize, buffer: scrap::Frame) -> image:
         }
     }
     image::RgbaImage::from_raw(w as u32, h as u32, bitflipped).unwrap()
+}
+
+fn print_time(s: &str) {
+    println!("{:<20}: {:?}", s, SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards"));
 }
