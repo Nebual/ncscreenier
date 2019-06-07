@@ -30,6 +30,7 @@ use livesplit_hotkey::KeyCode;
 use piston_window::*;
 use scrap::{Capturer, Display};
 use std::cell::RefCell;
+use std::cmp::max;
 use std::fs::File;
 use std::io::ErrorKind::WouldBlock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -94,6 +95,7 @@ Options:
                 filename.as_str(),
                 format!("{}{}", directory, filename).as_str(),
                 account.as_str(),
+                4,
             ) {
                 ctx.set_contents(url).unwrap();
             }
@@ -220,20 +222,37 @@ fn screenshot_and_save(directory: &str) -> Option<String> {
     }
 }
 
-fn upload_to_nebtown(filename: &str, filepath: &str, directory: &str) -> Option<String> {
+fn upload_to_nebtown(
+    filename: &str,
+    filepath: &str,
+    directory: &str,
+    retries: u8,
+) -> Option<String> {
     let url = format!("http://nebtown.info/ss/{}/{}", directory, filename);
     print!("Uploading to {} ...", url);
     let form = reqwest::multipart::Form::new()
         .file("file", &filepath)
         .unwrap();
-    let mut res: reqwest::Response = reqwest::Client::new()
+    let mut res = match reqwest::Client::new()
         .post(&format!(
             "http://nebtown.info/ss/?folder_name={}&file_name={}",
             directory, filename
         ))
         .multipart(form)
         .send()
-        .unwrap();
+    {
+        Ok(success_response) => success_response,
+        Err(e) => {
+            println!(" upload error! {:?}", e);
+            return if retries > 0 {
+                std::thread::sleep(Duration::from_secs(max((5 - retries).into(), 1)));
+                upload_to_nebtown(filename, filepath, directory, retries - 1)
+            } else {
+                println!("Upload failed, giving up :(");
+                None
+            };
+        }
+    };
     if res.status() == 200 {
         println!(" done!");
         Some(url)
