@@ -6,7 +6,6 @@ edition = "2018"
 
 [dependencies]
 scrap = "0.5"
-repng = "0.2"
 chrono = "0.4"
 piston_window = "0.89"
 livesplit-hotkey = "0.4"

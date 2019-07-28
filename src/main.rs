@@ -7,7 +7,6 @@ extern crate docopt;
 extern crate image;
 extern crate livesplit_hotkey;
 extern crate piston_window;
-extern crate repng;
 extern crate reqwest;
 extern crate scrap;
 #[macro_use]
@@ -25,7 +24,8 @@ use clipboard::ClipboardContext;
 use clipboard::ClipboardProvider;
 use core::borrow::BorrowMut;
 use device_query::{DeviceQuery, DeviceState, Keycode};
-use image::{GenericImage, GenericImageView, RgbaImage};
+use image::png::PNGEncoder;
+use image::{ColorType, ConvertBuffer, GenericImage, GenericImageView, RgbImage, RgbaImage};
 use livesplit_hotkey::KeyCode;
 use piston_window::*;
 use scrap::{Capturer, Display};
@@ -156,27 +156,30 @@ fn screenshot_and_save(directory: &str) -> Option<String> {
         let cropped_width = rect.bottom_right.0 - rect.top_left.0;
         let cropped_height = rect.bottom_right.1 - rect.top_left.1;
         if screenshot.additional_images.len() == 0 {
-            let cropped_image = image::imageops::crop(
+            let cropped_image: RgbImage = image::imageops::crop(
                 screenshot.image.borrow_mut(),
                 rect.top_left.0,
                 rect.top_left.1,
                 cropped_width,
                 cropped_height,
             )
-            .to_image();
-            repng::encode(
-                File::create(&filepath).unwrap(),
-                cropped_width,
-                cropped_height,
-                &cropped_image.into_raw(),
-            )
-            .unwrap();
+            .to_image()
+            .convert();
+
+            let mut png_buffer = Vec::new();
+            let (width, height) = cropped_image.dimensions();
+            PNGEncoder::new(png_buffer.by_ref())
+                .encode(&cropped_image.into_raw(), width, height, ColorType::RGB(8))
+                .expect("error encoding pixels as PNG");
+
+            let mut file = File::create(&filepath).unwrap();
+            file.write_all(&png_buffer).expect("error writing png");
         } else {
             let mut file = File::create(&filepath).unwrap();
             let mut encoder = Encoder::create(
                 &mut file,
                 Meta {
-                    color: Color::RGBA(8),
+                    color: Color::RGB(8),
                     frames: 1 + (screenshot.additional_images.len() as u32),
                     width: cropped_width,
                     height: cropped_height,
@@ -189,17 +192,18 @@ fn screenshot_and_save(directory: &str) -> Option<String> {
             std::iter::once(screenshot.image)
                 .chain(screenshot.additional_images.into_iter())
                 .for_each(|mut frame_image| {
-                    let cropped_frame = image::imageops::crop(
+                    let cropped_frame: RgbImage = image::imageops::crop(
                         frame_image.borrow_mut(),
                         rect.top_left.0,
                         rect.top_left.1,
                         cropped_width,
                         cropped_height,
                     )
-                    .to_image();
+                    .to_image()
+                    .convert();
                     encoder
                         .write_frame(
-                            &cropped_frame.into_vec(),
+                            &cropped_frame.into_raw(),
                             Some(&Frame {
                                 delay: Some(Delay {
                                     numerator: delays.next().unwrap(),
