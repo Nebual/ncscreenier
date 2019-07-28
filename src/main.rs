@@ -6,6 +6,7 @@ extern crate device_query;
 extern crate docopt;
 extern crate image;
 extern crate livesplit_hotkey;
+extern crate oxipng;
 extern crate piston_window;
 extern crate reqwest;
 extern crate scrap;
@@ -175,8 +176,14 @@ fn screenshot_and_save(directory: &str) -> Option<String> {
                 .encode(&cropped_image.into_raw(), width, height, ColorType::RGB(8))
                 .expect("error encoding pixels as PNG");
 
+            let mut oxipng_options = oxipng::Options::from_preset(2);
+            oxipng_options.verbosity = None;
+            let optimized_buffer = oxipng::optimize_from_memory(&png_buffer, &oxipng_options)
+                .expect("error optimizing png");
+
             let mut file = File::create(&filepath).unwrap();
-            file.write_all(&png_buffer).expect("error writing png");
+            file.write_all(&optimized_buffer)
+                .expect("error writing png");
         } else {
             let mut file = File::create(&filepath).unwrap();
             let mut encoder = Encoder::create(
