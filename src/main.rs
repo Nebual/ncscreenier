@@ -32,7 +32,9 @@ use scrap::{Capturer, Display};
 use std::cell::RefCell;
 use std::cmp::max;
 use std::fs::File;
+use std::io::stdout;
 use std::io::ErrorKind::WouldBlock;
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -64,8 +66,8 @@ const PRINTSCREEN_KEYCODE: KeyCode = KeyCode::Snapshot;
 const PRINTSCREEN_KEYCODE: KeyCode = KeyCode::Print;
 
 fn main() {
-    let cli_args = docopt::Docopt::new(
-        format!("
+    let cli_args = docopt::Docopt::new(format!(
+        "
 NCScreenie {} - Screenshot Cropper & Uploader
 
 Usage:
@@ -80,8 +82,9 @@ Options:
     --no-watch        Disable watching for printscreen, just immediately capture once
     --directory=DIR   Output directory for screenshots [default: ./]
     --quiet           (Windows only) hide the cmd window
-    ", VERSION),
-    )
+    ",
+        VERSION
+    ))
     .and_then(|dopt| dopt.parse())
     .unwrap_or_else(|e| e.exit());
 
@@ -234,6 +237,10 @@ fn upload_to_nebtown(
 ) -> Option<String> {
     let url = format!("http://nebtown.info/ss/{}/{}", directory, filename);
     print!("Uploading to {} ...", url);
+    stdout().flush().expect("error flushing stdout");
+    let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
+    ctx.set_contents(format!("{}?", url)).unwrap();
+
     let form = reqwest::multipart::Form::new()
         .file("file", &filepath)
         .unwrap();
@@ -568,5 +575,11 @@ fn scrap_buffer_to_rgbaimage(w: usize, h: usize, buffer: scrap::Frame) -> image:
 }
 
 fn print_time(s: &str) {
-    println!("{:<20}: {:?}", s, SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards"));
+    println!(
+        "{:<20}: {:?}",
+        s,
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+    );
 }
