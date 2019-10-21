@@ -26,7 +26,9 @@ use clipboard::ClipboardProvider;
 use core::borrow::BorrowMut;
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use image::png::PNGEncoder;
-use image::{ColorType, ConvertBuffer, GenericImage, GenericImageView, RgbImage, RgbaImage};
+use image::{
+    ColorType, ConvertBuffer, FilterType, GenericImage, GenericImageView, RgbImage, RgbaImage,
+};
 use livesplit_hotkey::KeyCode;
 use piston_window::*;
 use scrap::{Capturer, Display};
@@ -308,13 +310,36 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
     });
     window.set_lazy(true);
     window.window.window.set_always_on_top(true);
+    let dpi_factor = window.window.window.get_hidpi_factor();
+    if dpi_factor != 1.0 {
+        d!(println!("dpi factor {:?}", dpi_factor));
+        window.set_size([
+            (draw_width as f64 / dpi_factor) as u32,
+            (draw_height as f64 / dpi_factor) as u32,
+        ]);
+    }
 
-    let screenshot_texture: G2dTexture = Texture::from_image(
-        &mut window.factory,
-        &screenshot.image,
-        &TextureSettings::new(),
-    )
-    .unwrap();
+    let screenshot_texture: G2dTexture = if dpi_factor == 1.0 {
+        Texture::from_image(
+            &mut window.factory,
+            &screenshot.image,
+            &TextureSettings::new(),
+        )
+        .unwrap()
+    } else {
+        Texture::from_image(
+            &mut window.factory,
+            &image::imageops::resize(
+                &screenshot.image,
+                (draw_width as f64 / dpi_factor) as u32,
+                (screenshot.image.height() as f64 / dpi_factor) as u32,
+                FilterType::Lanczos3,
+            ),
+            &TextureSettings::new(),
+        )
+        .unwrap()
+    };
+
     while let Some(e) = window.next() {
         let e: piston_window::Event = e;
 
@@ -361,8 +386,14 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
             }) {
                 if ending {
                     return Some(Rect {
-                        top_left: (start_pos.0 as u32, start_pos.1 as u32),
-                        bottom_right: (last_pos.0 as u32, last_pos.1 as u32),
+                        top_left: (
+                            (start_pos.0 * dpi_factor) as u32,
+                            (start_pos.1 * dpi_factor) as u32,
+                        ),
+                        bottom_right: (
+                            (last_pos.0 * dpi_factor) as u32,
+                            (last_pos.1 * dpi_factor) as u32,
+                        ),
                     });
                 } else {
                     continue;
