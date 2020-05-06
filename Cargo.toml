@@ -1,21 +1,22 @@
 [package]
 name = "ncscreenier"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Nebual <ben1120@gmail.com>"]
 edition = "2018"
 
 [dependencies]
 scrap = "0.5"
 chrono = "0.4"
-piston_window = "0.89"
+piston_window = "0.108"
+winit = "0.19"
 livesplit-hotkey = "0.4"
 ctrlc = "3.1"
 docopt = "1.0"
 reqwest = "0.9"
 clipboard = "0.5"
-image = "0.21"
+image = "0.23"
 apng-encoder = "0.3.0"
-oxipng = "2.2"
+oxipng = "2.3"
 lazy_static = "1.3.0"
 device_query = "0.1.3"
 

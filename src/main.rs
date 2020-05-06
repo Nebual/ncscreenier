@@ -10,6 +10,7 @@ extern crate oxipng;
 extern crate piston_window;
 extern crate reqwest;
 extern crate scrap;
+extern crate winit;
 #[macro_use]
 extern crate lazy_static;
 
@@ -27,8 +28,10 @@ use core::borrow::BorrowMut;
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use image::png::PNGEncoder;
 use image::{
-    ColorType, ConvertBuffer, FilterType, GenericImage, GenericImageView, RgbImage, RgbaImage,
+    ColorType, GenericImage, GenericImageView, RgbImage, RgbaImage,
 };
+use image::imageops::FilterType;
+use image::buffer::ConvertBuffer;
 use livesplit_hotkey::KeyCode;
 use piston_window::*;
 use scrap::{Capturer, Display};
@@ -42,6 +45,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use winit::{EventsLoop};
 
 const SELECTION_COLOUR: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -175,7 +179,7 @@ fn screenshot_and_save(directory: &str) -> Option<String> {
             let mut png_buffer = Vec::new();
             let (width, height) = cropped_image.dimensions();
             PNGEncoder::new(png_buffer.by_ref())
-                .encode(&cropped_image.into_raw(), width, height, ColorType::RGB(8))
+                .encode(&cropped_image.into_raw(), width, height, ColorType::Rgb8)
                 .expect("error encoding pixels as PNG");
 
             let mut oxipng_options = oxipng::Options::from_preset(2);
@@ -296,7 +300,6 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
     let draw_width = screenshot.image.width();
     let draw_height = screenshot.image.height() - 1; // if we're perfectly matching on Windows, it'll become a 'fullscreen app' that takes seconds to load
     let mut window: PistonWindow = WindowSettings::new("NCScreenier", [draw_width, draw_height])
-        .opengl(OpenGL::V3_2)
         .exit_on_esc(true)
         .decorated(false)
         .resizable(false)
@@ -309,8 +312,9 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
         y: screenshot.y,
     });
     window.set_lazy(true);
-    window.window.window.set_always_on_top(true);
-    let dpi_factor = window.window.window.get_hidpi_factor();
+
+    // window.window.window.set_always_on_top(true); // not in latest version of piston_window >.>
+    let dpi_factor = EventsLoop::new().get_primary_monitor().get_hidpi_factor();
     if dpi_factor != 1.0 {
         d!(println!("dpi factor {:?}", dpi_factor));
         window.set_size([
@@ -321,14 +325,14 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
 
     let screenshot_texture: G2dTexture = if dpi_factor == 1.0 {
         Texture::from_image(
-            &mut window.factory,
+            &mut window.create_texture_context(),
             &screenshot.image,
             &TextureSettings::new(),
         )
         .unwrap()
     } else {
         Texture::from_image(
-            &mut window.factory,
+            &mut window.create_texture_context(),
             &image::imageops::resize(
                 &screenshot.image,
                 (draw_width as f64 / dpi_factor) as u32,
@@ -343,7 +347,7 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
     while let Some(e) = window.next() {
         let e: piston_window::Event = e;
 
-        window.draw_2d(&e, |c, gl| {
+        window.draw_2d(&e, |c, gl, _device| {
             image(&screenshot_texture, c.transform, gl);
             if start_pos.0 < last_pos.0 && start_pos.1 < last_pos.1 {
                 rectangle::Rectangle::new_border(SELECTION_COLOUR, 1.0).draw(
@@ -360,6 +364,8 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
             }
         });
         if let Some(Button::Mouse(MouseButton::Right)) = e.press_args() {
+            window.set_should_close(true); // doesn't seem to be working
+            window.hide();
             return None;
         }
         if let Some(Button::Mouse(MouseButton::Left)) = e.press_args() {
@@ -367,7 +373,7 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
         }
         if is_mouse_down {
             if start_pos == (0.0, 0.0) {
-                e.mouse_cursor(|x, y| {
+                e.mouse_cursor(|[x, y]| {
                     start_pos = (x, y);
                     d!(println!("start position {}, {}", x, y));
                 });
@@ -385,6 +391,8 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
                 false
             }) {
                 if ending {
+                    window.set_should_close(true); // doesn't seem to be working
+                    window.hide();
                     return Some(Rect {
                         top_left: (
                             (start_pos.0 * dpi_factor) as u32,
@@ -399,7 +407,7 @@ fn present_for_cropping(screenshot: &PresentabeScreenshot) -> Option<Rect> {
                     continue;
                 }
             }
-            e.mouse_cursor(|x, y| {
+            e.mouse_cursor(|[x, y]| {
                 last_pos = (x.max(0.0), y.max(0.0));
             });
         }
@@ -587,13 +595,13 @@ fn capture_image(
                     )),
                     (subimage.left - min_x) as u32,
                     (subimage.top - min_y) as u32,
-                );
+                ).unwrap();
             } else {
                 big_image.copy_from(
                     &subimage.image.unwrap(),
                     (subimage.left - min_x) as u32,
                     (subimage.top - min_y) as u32,
-                );
+                ).unwrap();
             }
         });
     big_image
